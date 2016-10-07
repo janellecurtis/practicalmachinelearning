@@ -1,0 +1,81 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Janelle Curtis"
+date: "September 29, 2016"
+output: html_document
+---
+
+##Executive Summary
+Using data from activity trackers for 6 users that were asked to complete dumbbell
+curls 5 different ways, I am trying to predict the dumbbell curl method.  In this
+project, I used a random forest method, parallelized for efficiency, to model 
+the activity. 
+
+##Methods and Implementation
+```{r setup, cache = TRUE, warning = FALSE}
+library(caret)
+library(ggplot2)
+library(parallel)
+library(doParallel)
+trainData <- read.csv("pml-training.csv")
+testData <- read.csv("pml-testing.csv")
+set.seed(2121)
+```
+
+```{r cache = TRUE}
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+notNA <- apply(trainData, 2, function(x) (sum(is.na(x)) < 19000) & (sum(x == "") < 19000))
+trainDataNotNA <- trainData[,notNA]
+varTrain <- trainDataNotNA[7:60]
+actualTrain <- createDataPartition(varTrain$classe, p = 0.75, list = FALSE)
+x <- varTrain[actualTrain,-54]
+y <- varTrain[actualTrain,54]
+preTest <- varTrain[-actualTrain,]
+```
+
+First, I removed all variables that were >95% missing values, which left me
+with 60 variables, including the response.  I then removed the variables involving
+username, time stamp, and window, leaving me with 54 variables, including the response.
+Finally, since I had so much data, I split the data into a training set and a pre-test
+set so I could estimate my out of sample error before applying the data to the 
+true test set.
+
+```{r cache = TRUE, warning = FALSE}
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+fit <- train(x, y, method = "rf", trControl = fitControl)
+stopCluster(cluster)
+```
+
+Using the train control function, I created a random forest model using 5-fold
+cross validation.  To speed up the model creation process, I parallelized it
+on multiple cores.
+
+##Results
+
+```{r cache = TRUE, warning = FALSE}
+print(fit)
+print(fit$finalModel)
+rightPred <- sum(predict(fit, preTest) == preTest$classe)
+OOSE <- round((1 - sum(predict(fit, preTest) == preTest$classe) / nrow(preTest)) * 100, digits = 3)
+```
+
+Once the model was made, I predicted the classe for the pre-test set and 
+calculated the out of sample error.  Of the 4904 cases in my pre-test set,
+the model correctly identified the classe of `r rightPred` of them, corresponding
+to an out of sample error of `r OOSE`%.
+
+```{r cache = TRUE, warning = FALSE}
+testNotNA <- testData[,notNA]
+testSimple <- testNotNA[7:60]
+predict(fit, testSimple)
+```
+
+Finally, I predicted the classe for the 20 test cases.
+
+##Conclusion
+In this work, I developed a model to predict the classe of a specific type of workout
+based on the accelerometer data from multiple sources on the body.
+The model created using random forest with 5-fold cross validation performed 
+extremely well on the pre-test data set, resulting in 99.7% accuracy. As expected, this
+resulted in correctly identifying the classe for all 20 test cases.
